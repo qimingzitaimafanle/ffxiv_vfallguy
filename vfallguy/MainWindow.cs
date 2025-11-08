@@ -1,23 +1,19 @@
-using Dalamud.Game.ClientState.Conditions;
-using Dalamud.Interface.Utility.Raii;
-using Dalamud.Interface.Windowing;
-using FFXIVClientStructs.FFXIV.Client.System.Framework;
-using ImGuiNET;
 using System;
 using System.Linq;
 using System.Numerics;
-using Dalamud.Game.Text;
-using Dalamud.Game.Text.SeStringHandling;
-using System.Text.RegularExpressions;
 using System.Net.Http;
 using System.Text;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Interface.Utility.Raii;
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
-using Dalamud.Game.ClientState.Objects.Types;
-using Dalamud.Game.ClientState.Objects.SubKinds;
-
+using FFXIVClientStructs.FFXIV.Client.System.Framework;
 
 namespace vfallguy;
 
@@ -49,82 +45,24 @@ public class MainWindow : Window, IDisposable
     private string _qqPrivateChatNumber = "";
     private string _qqBotNumber = "";
     private string _gameName = "";
-    private HttpClient _httpClient = new HttpClient();
+    private HttpClient _httpClient = new();
     private int _battlePlayerCount = 1;
     private bool _enableQQBotConfig = false;
     private bool _showDebugWindow = false;
     private string _debugMessages = "";
-    private BotConfiguration config;
+    private BotConfiguration _config = new();
 
-
-
-
-
-
-    public MainWindow(DalamudPluginInterface pluginInterface) : base("vfailguy改 by:Cindy-Master 闲鱼司马")
+    public MainWindow(IDalamudPluginInterface pluginInterface) : base("vfailguy 改")
     {
-        config = new BotConfiguration();
-        config.Initialize(pluginInterface);
+        // 初始化配置
+        _config.Initialize(pluginInterface);
         LoadConfig();
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Apifox/1.0.0 (https://apifox.com)");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("vfallguy/1.0");
         _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+
         ShowCloseButton = false;
         RespectCloseHotkey = false;
         Service.ChatGui.ChatMessage += OnChatMessage;
-    }
-    private void LoadConfig()
-    {
-        _gameName = config.GameName;
-        _qqPrivateChatNumber = config.QqPrivateChatNumber;
-        _qqBotNumber = config.QqBotNumber;
-        _webSocketUrl = config.WebSocketUrl;
-        _webSocketPort = config.WebSocketPort;
-        _battlePlayerCount = config.BattlePlayerCount;
-    }
-
-    private bool IsConfigComplete()
-    {
-
-        return !string.IsNullOrWhiteSpace(_webSocketUrl) &&
-               _webSocketPort != 0 &&
-               !string.IsNullOrWhiteSpace(_qqPrivateChatNumber) &&
-               !string.IsNullOrWhiteSpace(_qqBotNumber) &&
-               !string.IsNullOrWhiteSpace(_gameName);
-    }
-
-    private void OnChatMessage(XivChatType type, uint senderId, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-
-        if (Regex.IsMatch(message.TextValue, @"节目马上就要开始了"))
-        {
-
-            if (IsConfigComplete() && _enableQQBotConfig && _numPlayersInDuty <= _battlePlayerCount)
-            {
-
-                SendMessageToQQ($"本账号名称: {_gameName}\n" +
-                                $"当前为{_numPlayersInDuty}人对局");
-            }
-            else
-            {
-                _debugMessages += "判断异常\n";
-            }
-        }
-
-
-
-
-        if (Regex.IsMatch(message.TextValue, @"获得了(\d+)个金碟声誉。"))
-        {
-            if (_autoFarmingMode && !_autoWinLeave)
-            {
-                PerformAutoFarming();
-            }
-            if (_autoWinLeave && _map is Map3)
-            {
-                PerformAutoFarming();
-            }
-        }
-
     }
 
     public void Dispose()
@@ -133,10 +71,26 @@ public class MainWindow : Window, IDisposable
         _map?.Dispose();
         _gameEvents.Dispose();
         _automation.Dispose();
-
     }
 
+    private void LoadConfig()
+    {
+        _gameName = _config.GameName;
+        _qqPrivateChatNumber = _config.QqPrivateChatNumber;
+        _qqBotNumber = _config.QqBotNumber;
+        _webSocketUrl = _config.WebSocketUrl;
+        _webSocketPort = _config.WebSocketPort;
+        _battlePlayerCount = _config.BattlePlayerCount;
+    }
 
+    private bool IsConfigComplete()
+    {
+        return !string.IsNullOrWhiteSpace(_webSocketUrl)
+            && _webSocketPort != 0
+            && !string.IsNullOrWhiteSpace(_qqPrivateChatNumber)
+            && !string.IsNullOrWhiteSpace(_qqBotNumber)
+            && !string.IsNullOrWhiteSpace(_gameName);
+    }
 
     public unsafe override void PreOpenCheck()
     {
@@ -150,8 +104,6 @@ public class MainWindow : Window, IDisposable
         _movementSpeed = _movementDirection.Length() / Framework.Instance()->FrameDeltaTime;
         _movementDirection = _movementDirection.NormalizedXZ();
 
-
-
         IsOpen = Service.ClientState.TerritoryType is 1165 or 1197;
 
         UpdateMap();
@@ -160,20 +112,10 @@ public class MainWindow : Window, IDisposable
         DrawOverlays();
 
         _drawer.DrawWorldPrimitives();
-
-
     }
 
     public unsafe override void Draw()
     {
-        /*if (Service.ClientState.LocalPlayer != null)
-        {
-            uint blueColor = 0xFF0000FF;
-            ImGui.PushStyleColor(ImGuiCol.Text, blueColor);
-            ImGui.Text($"玩家名称: {Service.ClientState.LocalPlayer.Name}");
-            ImGui.PopStyleColor();
-        }*/
-
         if (ImGui.Button("进本"))
             _automation.RegisterForDuty();
         ImGui.SameLine();
@@ -184,15 +126,15 @@ public class MainWindow : Window, IDisposable
         {
             var achievement = Achievement.Instance();
             if (achievement != null)
-            {
                 achievement->RequestAchievementProgress(3407);
-            }
         }
         ImGui.SameLine();
         ImGui.Text($"{Achievement.Instance()->ProgressMax}/100 ");
         ImGui.TextUnformatted($"玩家数量: {_numPlayersInDuty} (自动退本: {(_autoLeaveAt == DateTime.MaxValue ? "无" : $"倒计时: {(_autoLeaveAt - _now).TotalSeconds:f1}s")})");
+
         ImGui.Checkbox("第三关结束自动退(请勿勾选挂机刷币)", ref _autoWinLeave);
         ImGui.Checkbox("挂机刷币模式(请同时勾选自动排本)", ref _autoFarmingMode);
+
         ImGui.Checkbox("自动排本(需要在NPC旁边)", ref _autoJoin);
         if (_autoJoin)
         {
@@ -214,11 +156,7 @@ public class MainWindow : Window, IDisposable
         ImGui.Checkbox("AOE时间", ref _showAOEText);
         ImGui.Checkbox("推荐路线", ref _showPathfind);
 
-
-
         ImGui.Checkbox("启用QQ机器人通知", ref _enableQQBotConfig);
-
-
         if (_enableQQBotConfig)
         {
             ImGui.Text("QQ机器人配置:");
@@ -231,27 +169,27 @@ public class MainWindow : Window, IDisposable
 
             if (ImGui.Button("应用"))
             {
+                _config.GameName = _gameName;
+                _config.QqPrivateChatNumber = _qqPrivateChatNumber;
+                _config.QqBotNumber = _qqBotNumber;
+                _config.WebSocketUrl = _webSocketUrl;
+                _config.WebSocketPort = _webSocketPort;
+                _config.BattlePlayerCount = _battlePlayerCount;
+                _config.Save();
 
-                config.GameName = _gameName;
-                config.QqPrivateChatNumber = _qqPrivateChatNumber;
-                config.QqBotNumber = _qqBotNumber;
-                config.WebSocketUrl = _webSocketUrl;
-                config.WebSocketPort = _webSocketPort;
-                config.BattlePlayerCount = _battlePlayerCount;
-                config.Save();
                 if (IsConfigComplete())
                 {
-
                     SendMessageToQQ("机器人已成功连接\n" +
                                     $"本账号名称: {_gameName}\n" +
                                     $"通知QQ私聊号码: {_qqPrivateChatNumber}\n");
                 }
                 else
                 {
-
                     _debugMessages += "QQ机器人配置不完整，取消发送消息。\n";
                 }
             }
+
+            ImGui.SameLine();
             if (ImGui.Button("Debug"))
             {
                 _showDebugWindow = !_showDebugWindow;
@@ -262,17 +200,11 @@ public class MainWindow : Window, IDisposable
                 {
                     ImGui.TextUnformatted(_debugMessages);
                     if (ImGui.Button("清空"))
-                    {
                         _debugMessages = "";
-                    }
                     ImGui.End();
                 }
             }
-
-
         }
-
-
 
         if (_map != null)
         {
@@ -283,56 +215,14 @@ public class MainWindow : Window, IDisposable
             ImGui.TextUnformatted($"Path: {_map.PathSkip}-{_map.Path.Count}");
             ImGui.TextUnformatted($"Speed: {_movementSpeed}");
 
-            /*foreach (var aoe in _map.AOEs.Where(aoe => aoe.NextActivation != default))
-            {
-                var nextActivation = (aoe.NextActivation - _now).TotalSeconds;
-                using (ImRaii.PushColor(ImGuiCol.Text, nextActivation < 0 ? 0xff0000ff : 0xffffffff))
-                    ImGui.TextUnformatted($"{aoe.Type} R{aoe.R1} @ {aoe.Origin}: activate in {nextActivation:f3}, repeat={aoe.Repeat}, seqd={aoe.SeqDelay}");
-            }*/
+            //foreach (var aoe in _map.AOEs.Where(aoe => aoe.NextActivation != default))
+            //{
+            //    var nextActivation = (aoe.NextActivation - _now).TotalSeconds;
+            //    using (ImRaii.PushColor(ImGuiCol.Text, nextActivation < 0 ? 0xff0000ff : 0xffffffff))
+            //        ImGui.TextUnformatted($"{aoe.Type} R{aoe.R1} @ {aoe.Origin}: activate in {nextActivation:f3}, repeat={aoe.Repeat}, seqd={aoe.SeqDelay}");
+            //}
         }
     }
-    private async void SendMessageToQQ(string message)
-    {
-        long qqPrivateChatNumberLong = Convert.ToInt64(_qqPrivateChatNumber);
-        long qqBotNumberLong = Convert.ToInt64(_qqBotNumber);
-        string requestUrl = $"{_webSocketUrl}:{_webSocketPort}/v1/LuaApiCaller?funcname=MagicCgiCmd&timeout=35&qq={qqBotNumberLong}";
-        var postData = new
-        {
-            CgiCmd = "MessageSvc.PbSendMsg",
-            CgiRequest = new
-            {
-                ToUin = qqPrivateChatNumberLong,
-                ToType = 1,
-                Content = message
-            }
-        };
-
-        var content = new StringContent(JsonConvert.SerializeObject(postData), Encoding.UTF8, "application/json");
-        try
-        {
-            var response = await _httpClient.PostAsync(requestUrl, content);
-            var responseString = await response.Content.ReadAsStringAsync();
-            responseString = JsonConvert.SerializeObject(JsonConvert.DeserializeObject(responseString), Formatting.Indented);
-            if (response.IsSuccessStatusCode)
-            {
-                _debugMessages += "消息发送成功: " + responseString + "\n";
-            }
-            else
-            {
-                _debugMessages += $"消息发送失败: 服务器返回 {response.StatusCode}\n";
-            }
-
-        }
-        catch (HttpRequestException e)
-        {
-            _debugMessages += "消息发送失败: " + e.Message + "\n";
-        }
-        catch (Exception e)
-        {
-            _debugMessages += "消息发送出现异常: " + e.Message + "\n";
-        }
-    }
-
 
     private void UpdateMap()
     {
@@ -368,12 +258,10 @@ public class MainWindow : Window, IDisposable
 
         _map?.Update();
     }
+
     private void PerformAutoFarming()
-
     {
-
         _automation.LeaveDuty();
-
     }
 
     private void UpdateAutoJoin()
@@ -399,10 +287,8 @@ public class MainWindow : Window, IDisposable
     private void UpdateAutoLeave()
     {
         _numPlayersInDuty = Service.ClientState.TerritoryType == 1165 && Service.Condition[ConditionFlag.BoundByDuty] && !Service.Condition[ConditionFlag.BetweenAreas]
-     ? Service.ObjectTable.OfType<PlayerCharacter>()
-                  .Count(pc => pc.ObjectId != 3758096384)
-     : 0;
-
+            ? Service.ObjectTable.Count(o => o.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player)
+            : 0;
         bool wantAutoLeave = _autoLeaveIfNotSolo && _numPlayersInDuty > _autoLeaveLimit && _automation.Idle;
         if (!wantAutoLeave)
         {
@@ -461,6 +347,64 @@ public class MainWindow : Window, IDisposable
                     _drawer.DrawWorldText(textPos, color, text);
                 }
             }
+        }
+    }
+
+    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    {
+        if (Regex.IsMatch(message.TextValue, @"节目马上就要开始了"))
+        {
+            if (IsConfigComplete() && _enableQQBotConfig && _numPlayersInDuty <= _battlePlayerCount)
+            {
+                SendMessageToQQ($"本账号名称: {_gameName}\n当前为{_numPlayersInDuty}人对局");
+            }
+            else
+            {
+                _debugMessages += "判断异常\n";
+            }
+        }
+
+        if (Regex.IsMatch(message.TextValue, @"获得了(\d+)个金碟声誉。"))
+        {
+            if (_autoFarmingMode && !_autoWinLeave)
+                PerformAutoFarming();
+            if (_autoWinLeave && _map is Map3)
+                PerformAutoFarming();
+        }
+    }
+
+    private async void SendMessageToQQ(string message)
+    {
+        try
+        {
+            var qqPrivate = long.Parse(_qqPrivateChatNumber);
+            var qqBot = long.Parse(_qqBotNumber);
+            var requestUrl = $"{_webSocketUrl}:{_webSocketPort}/v1/LuaApiCaller?funcname=MagicCgiCmd&timeout=35&qq={qqBot}";
+
+            var payload = new
+            {
+                CgiCmd = "MessageSvc.PbSendMsg",
+                CgiRequest = new
+                {
+                    ToUin = qqPrivate,
+                    ToType = 1,
+                    Content = message
+                }
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(requestUrl, content);
+            var responseString = await response.Content.ReadAsStringAsync();
+            if (response.IsSuccessStatusCode)
+                _debugMessages += "消息发送成功: " + responseString + "\n";
+            else
+                _debugMessages += $"消息发送失败: 服务器返回 {response.StatusCode}\n";
+        }
+        catch (Exception e)
+        {
+            _debugMessages += "消息发送出现异常: " + e.Message + "\n";
         }
     }
 }

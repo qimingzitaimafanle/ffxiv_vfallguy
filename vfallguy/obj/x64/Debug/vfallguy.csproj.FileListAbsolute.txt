@@ -1,0 +1,8 @@
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.csproj.AssemblyReference.cache
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.GeneratedMSBuildEditorConfig.editorconfig
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.AssemblyInfoInputs.cache
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.AssemblyInfo.cs
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.csproj.CoreCompileInputs.cache
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\bin\x64\Debug\vfallguy.deps.json
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\bin\x64\Debug\vfallguy.dll
+F:\卫月插件本地版\ffxiv_vfallguy-master\vfallguy\obj\x64\Debug\vfallguy.dll

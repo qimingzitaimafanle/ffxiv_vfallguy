@@ -1,8 +1,8 @@
 {
   "Author": "veyn",
-  "Name": "vfallguy",
-  "Punchline": "Get that achievement!",
-  "Description": "Auto join/leave to try fishing for solo instance, highlight of aoes on last stage.",
+  "Name": "vfallguy 改",
+  "Punchline": "自动排退、AOE提示与QQ通知",
+  "Description": "自动排本/退本以刷单人或挂机刷币，第三关AOE范围与时间提示，推荐路线；支持QQ机器人通知与进度查询。",
   "InternalName": "vfallguy",
   "ApplicableVersion": "any",
   "IconUrl": "https://raw.githubusercontent.com/awgil/ffxiv_vfallguy/3af43e6f7b7e63c6527ffa4ecc54190034bd60c4/icon2.png"

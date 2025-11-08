@@ -1,20 +1,20 @@
-﻿using Dalamud.Interface.Windowing;
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 
 namespace vfallguy;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    public DalamudPluginInterface Dalamud { get; init; }
+    public IDalamudPluginInterface Dalamud { get; init; }
 
     public WindowSystem WindowSystem = new("vfallguy");
     private MainWindow _wnd;
 
-    public Plugin(DalamudPluginInterface dalamud)
+    public Plugin(IDalamudPluginInterface dalamud)
     {
         dalamud.Create<Service>();
 
-        _wnd = new();
+        _wnd = new(dalamud);
         WindowSystem.AddWindow(_wnd);
 
         Dalamud = dalamud;
