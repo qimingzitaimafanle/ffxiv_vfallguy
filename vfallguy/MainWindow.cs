@@ -12,8 +12,12 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.System.Framework;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace vfallguy;
 
@@ -50,7 +54,15 @@ public class MainWindow : Window, IDisposable
     private bool _enableQQBotConfig = false;
     private bool _showDebugWindow = false;
     private string _debugMessages = "";
+    private bool _captureAddonText = false;
+    private bool _captureAddonTextOnce = false;
     private BotConfiguration _config = new();
+    // 货币（MGF）追踪
+    private int _mgfTotal = -1; // 未知时为 -1
+    private int _lastMgfGain = 0;
+    private bool _wasBoundByDuty = false;
+    private DateTime _enteredDutyAt = DateTime.MinValue;
+    private int _lastLoggedMgf = -2; // 调试日志去抖：仅在变更时输出
 
     public MainWindow(IDalamudPluginInterface pluginInterface) : base("vfailguy 改")
     {
@@ -63,11 +75,16 @@ public class MainWindow : Window, IDisposable
         ShowCloseButton = false;
         RespectCloseHotkey = false;
         Service.ChatGui.ChatMessage += OnChatMessage;
+
+        // 监听所有 Addon 的生命周期事件，以在入口 NPC 对话框出现时读取 MGF 总数
+        Service.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, OnAddonLifecycle);
+        Service.AddonLifecycle.RegisterListener(AddonEvent.PostUpdate, OnAddonLifecycle);
     }
 
     public void Dispose()
     {
         Service.ChatGui.ChatMessage -= OnChatMessage;
+        Service.AddonLifecycle.UnregisterListener(OnAddonLifecycle);
         _map?.Dispose();
         _gameEvents.Dispose();
         _automation.Dispose();
@@ -81,6 +98,214 @@ public class MainWindow : Window, IDisposable
         _webSocketUrl = _config.WebSocketUrl;
         _webSocketPort = _config.WebSocketPort;
         _battlePlayerCount = _config.BattlePlayerCount;
+    }
+
+    private unsafe void OnAddonLifecycle(AddonEvent type, AddonArgs args)
+    {
+        // 非副本时尝试读取（放宽区域限制，以兼容不同入口点）
+        if (Service.Condition[ConditionFlag.BoundByDuty])
+            return;
+
+        // Dalamud v13: AddonArgs.Addon 为 AtkUnitBasePtr 包装类型
+        var addonPtr = args.Addon;
+        if (addonPtr.IsNull)
+            return;
+        var unit = (AtkUnitBase*)addonPtr.Address;
+        if (unit == null)
+            return;
+
+        // FGSEnterDialog：在 PostSetup 阶段用专用索引读取，避免误读
+        if (type == AddonEvent.PostSetup && args is AddonSetupArgs setupArgs && (args.AddonName ?? string.Empty) == "FGSEnterDialog")
+        {
+            TryReadMgfFromFgsEnterDialog(setupArgs);
+        }
+        else
+        {
+            TryReadMgfFromAddon(unit, args.AddonName ?? string.Empty);
+        }
+
+        // 调试：抓取当前可见面板的文本内容，帮助定位节点与名称
+        // 调试采集：避免卡顿，改为“只采集一次”优先
+        if (_captureAddonTextOnce && unit->IsVisible && unit->UldManager.LoadedState == AtkLoadState.Loaded)
+        {
+            DumpAddonText(unit, args.AddonName ?? string.Empty);
+            _captureAddonTextOnce = false;
+        }
+        else if (_captureAddonText && unit->IsVisible && unit->UldManager.LoadedState == AtkLoadState.Loaded)
+        {
+            // 连续采集模式：可能造成卡顿，仅用于短时间排查
+            DumpAddonText(unit, args.AddonName ?? string.Empty);
+        }
+
+        // 在 PostSetup 阶段仅输出调试信息，暂不设置 MGF，避免误读。
+        if (type == AddonEvent.PostSetup && args is AddonSetupArgs setupArgs2)
+            DumpSetupValues(setupArgs2, args.AddonName ?? string.Empty);
+    }
+
+    private unsafe void TryReadMgfFromAddon(AtkUnitBase* addon, string addonName)
+    {
+        if (addonName == "FGSEnterDialog")
+            return; // 该面板改由专读逻辑在 PostSetup 中读取，避免泛解析误读
+        bool indicatorSeen = false;
+        int numericFound = -1;
+        if (addon == null || !addon->IsVisible || addon->UldManager.LoadedState != AtkLoadState.Loaded)
+            return;
+        var mgr = &addon->UldManager;
+        var nodes = mgr->NodeList;
+        for (var i = 0; i < mgr->NodeListCount; i++)
+        {
+            var node = nodes[i];
+            if (node == null)
+                continue;
+            if (node->Type == NodeType.Text)
+            {
+                var t = (AtkTextNode*)node;
+                var s = t->NodeText.ToString();
+                if (string.IsNullOrWhiteSpace(s))
+                    continue;
+
+                if (s.Contains("MGF", StringComparison.OrdinalIgnoreCase) || s.Contains("金碟声誉"))
+                    indicatorSeen = true;
+
+                // 同节点内提取纯数字或句子中的数字
+                var m = Regex.Match(s, "^\\s*(\\d{1,7})\\s*$");
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var v))
+                    numericFound = Math.Max(numericFound, v);
+                else
+                {
+                    var m2 = Regex.Match(s, "(\\d{1,7})");
+                    if (m2.Success && int.TryParse(m2.Groups[1].Value, out var v2))
+                        numericFound = Math.Max(numericFound, v2);
+                }
+            }
+            // NodeType.Counter 的读取在不同版本有字段差异，暂不直接读取，保持文本节点解析
+        }
+
+        if (indicatorSeen && numericFound >= 0)
+        {
+            // 非入口面板：若识别到奖励文本，仅记录“最近获得”，不覆盖总数
+            _lastMgfGain = numericFound;
+            _debugMessages += $"识别到奖励文本，最近获得: {_lastMgfGain} (Addon: {addonName})\n";
+        }
+        else if (indicatorSeen && numericFound < 0)
+        {
+            _debugMessages += $"检测到 MGF 关键词，但未找到数字 (Addon: {addonName})\n";
+        }
+    }
+
+    private unsafe void TryReadMgfFromFgsEnterDialog(AddonSetupArgs setupArgs)
+    {
+        try
+        {
+            var values = (AtkValue*)setupArgs.AtkValues;
+            // 根据你的调试数据，索引 #1 为 736，即当前货币
+            var v = values[1];
+            int cand = Math.Max(v.Int, (int)Math.Min(v.UInt, int.MaxValue));
+            if (cand >= 0 && cand <= 9999999)
+            {
+                _mgfTotal = cand;
+                if (_mgfTotal != _lastLoggedMgf)
+                {
+                    _debugMessages += $"FGSEnterDialog 专读到 MGF: {_mgfTotal}\n";
+                    _lastLoggedMgf = _mgfTotal;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            _debugMessages += $"TryReadMgfFromFgsEnterDialog 异常: {e.Message}\n";
+        }
+    }
+
+    private unsafe void DumpAddonText(AtkUnitBase* addon, string addonName)
+    {
+        try
+        {
+            var mgr = &addon->UldManager;
+            var nodes = mgr->NodeList;
+            int printed = 0;
+            for (var i = 0; i < mgr->NodeListCount; i++)
+            {
+                var node = nodes[i];
+                if (node == null)
+                    continue;
+                if (node->Type == NodeType.Text)
+                {
+                    var t = (AtkTextNode*)node;
+                    var s = t->NodeText.ToString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        _debugMessages += $"[Addon={addonName}] TextNode #{i}: \"{s}\"\n";
+                        printed++;
+                        if (printed >= 50) // 避免日志过长
+                            break;
+                    }
+                }
+                else
+                {
+                    _debugMessages += $"[Addon={addonName}] Node #{i} Type={node->Type}\n";
+                }
+            }
+            if (printed == 0)
+                _debugMessages += $"[Addon={addonName}] 未捕获到任何 TextNode 文本\n";
+        }
+        catch (Exception e)
+        {
+            _debugMessages += $"DumpAddonText 异常: {e.Message}\n";
+        }
+    }
+
+    private unsafe void TryReadMgfFromSetup(AddonSetupArgs setupArgs, string addonName)
+    {
+        try
+        {
+            var count = setupArgs.AtkValueCount;
+            var values = (AtkValue*)setupArgs.AtkValues;
+            int numericFound = -1;
+            for (int i = 0; i < count; i++)
+            {
+                var v = values[i];
+                int cand = Math.Max(v.Int, (int)Math.Min(v.UInt, int.MaxValue));
+                if (cand >= 0 && cand <= 9999999)
+                    numericFound = Math.Max(numericFound, cand);
+            }
+
+            if (numericFound >= 0)
+            {
+                _mgfTotal = numericFound;
+                _debugMessages += $"通过 PostSetup 读取到 MGF: {_mgfTotal} (Addon: {addonName}, Values={count})\n";
+            }
+            else
+            {
+                _debugMessages += $"PostSetup 未找到数字 (Addon: {addonName}, Values={count})\n";
+            }
+        }
+        catch (Exception e)
+        {
+            _debugMessages += $"TryReadMgfFromSetup 异常: {e.Message}\n";
+        }
+    }
+
+    private unsafe void DumpSetupValues(AddonSetupArgs setupArgs, string addonName)
+    {
+        try
+        {
+            var count = setupArgs.AtkValueCount;
+            var values = (AtkValue*)setupArgs.AtkValues;
+            var sb = new StringBuilder();
+            sb.Append($"[Addon={addonName}] PostSetup Values (count={count}): ");
+            for (int i = 0; i < count; i++)
+            {
+                var v = values[i];
+                sb.Append($"#{i} Int={v.Int} UInt={v.UInt}; ");
+                if (i >= 64) break; // 限制日志长度
+            }
+            _debugMessages += sb.ToString() + "\n";
+        }
+        catch (Exception e)
+        {
+            _debugMessages += $"DumpSetupValues 异常: {e.Message}\n";
+        }
     }
 
     private bool IsConfigComplete()
@@ -106,12 +331,26 @@ public class MainWindow : Window, IDisposable
 
         IsOpen = Service.ClientState.TerritoryType is 1165 or 1197;
 
+        // 进入副本时重置一次本轮的货币读取标记
+        var boundByDuty = Service.Condition[ConditionFlag.BoundByDuty];
+        if (boundByDuty && !_wasBoundByDuty)
+        {
+            _enteredDutyAt = _now;
+            _lastMgfGain = 0;
+            // 不清空总数，只在未知时维持 -1；若后续在入口NPC处检测到则更新
+        }
+        _wasBoundByDuty = boundByDuty;
+
         UpdateMap();
         UpdateAutoJoin();
         UpdateAutoLeave();
         DrawOverlays();
 
         _drawer.DrawWorldPrimitives();
+
+        // 将货币信息显示到窗口标题
+        var mgfTextTitle = _mgfTotal >= 0 ? _mgfTotal.ToString() : "未知";
+        this.WindowName = $"vfailguy 改  货币(MGF): {mgfTextTitle} 最近获得: {_lastMgfGain}";
     }
 
     public unsafe override void Draw()
@@ -188,22 +427,6 @@ public class MainWindow : Window, IDisposable
                     _debugMessages += "QQ机器人配置不完整，取消发送消息。\n";
                 }
             }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Debug"))
-            {
-                _showDebugWindow = !_showDebugWindow;
-            }
-            if (_showDebugWindow)
-            {
-                if (ImGui.Begin("调试信息", ref _showDebugWindow))
-                {
-                    ImGui.TextUnformatted(_debugMessages);
-                    if (ImGui.Button("清空"))
-                        _debugMessages = "";
-                    ImGui.End();
-                }
-            }
         }
 
         if (_map != null)
@@ -222,6 +445,8 @@ public class MainWindow : Window, IDisposable
             //        ImGui.TextUnformatted($"{aoe.Type} R{aoe.R1} @ {aoe.Origin}: activate in {nextActivation:f3}, repeat={aoe.Repeat}, seqd={aoe.SeqDelay}");
             //}
         }
+
+        // 货币信息已移至标题，不在底部显示或提供调试采集入口
     }
 
     private void UpdateMap()
@@ -366,6 +591,21 @@ public class MainWindow : Window, IDisposable
 
         if (Regex.IsMatch(message.TextValue, @"获得了(\d+)个金碟声誉。"))
         {
+            var m = Regex.Match(message.TextValue, @"获得了(\d+)个金碟声誉。");
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var val))
+                _lastMgfGain = val;
+            if (_autoFarmingMode && !_autoWinLeave)
+                PerformAutoFarming();
+            if (_autoWinLeave && _map is Map3)
+                PerformAutoFarming();
+        }
+
+        // 英文端奖励识别：用于自动退本
+        if (Regex.IsMatch(message.TextValue, @"You obtain (\d+) MGF\."))
+        {
+            var m = Regex.Match(message.TextValue, @"You obtain (\d+) MGF\.");
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var val))
+                _lastMgfGain = val;
             if (_autoFarmingMode && !_autoWinLeave)
                 PerformAutoFarming();
             if (_autoWinLeave && _map is Map3)
