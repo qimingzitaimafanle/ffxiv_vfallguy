@@ -1,14 +1,15 @@
-{
-  "Author": "qimingzitaimafanle",
-  "Name": "VFallGuy",
-  "Punchline": "A silly FFXIV plugin example",
-  "Description": "Just for fun — maintained by a beginner to keep the plugin alive.",
-  "RepoUrl": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy",
-  "DownloadLinkInstall": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy/releases/latest/download/VFallGuy.zip",
-  "DownloadLinkUpdate": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy/releases/latest/download/VFallGuy.zip",
-  "InternalName": "VFallGuy",
-  "AssemblyVersion": "1.0.0.0",
-  "ApplicableVersion": "any",
-  "Tags": ["fun", "minigame"],
-  "CategoryTags": ["fun"]
-}
+[
+  {
+    "Author": "veyn",
+    "Name": "vfallguy 改",
+    "Punchline": "自动排退、AOE提示与QQ通知",
+    "Description": "自动排本/退本以刷单人或挂机刷币，第三关AOE范围与时间提示，推荐路线；支持QQ机器人通知与进度查询。",
+    "InternalName": "vfallguy",
+    "AssemblyVersion": "0.0.0.0",
+    "RepoUrl": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 13,
+    "IconUrl": "https://raw.githubusercontent.com/qimingzitaimafanle/ffxiv_vfallguy/main/icon2.png",
+    "DownloadLinkInstall": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy/releases/latest/download/latest.zip"
+  }
+]
