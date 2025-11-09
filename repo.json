@@ -1,0 +1,14 @@
+{
+  "Author": "qimingzitaimafanle",
+  "Name": "VFallGuy",
+  "Punchline": "A silly FFXIV plugin example",
+  "Description": "Just for fun — maintained by a beginner to keep the plugin alive.",
+  "RepoUrl": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy",
+  "DownloadLinkInstall": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy/releases/latest/download/VFallGuy.zip",
+  "DownloadLinkUpdate": "https://github.com/qimingzitaimafanle/ffxiv_vfallguy/releases/latest/download/VFallGuy.zip",
+  "InternalName": "VFallGuy",
+  "AssemblyVersion": "1.0.0.0",
+  "ApplicableVersion": "any",
+  "Tags": ["fun", "minigame"],
+  "CategoryTags": ["fun"]
+}
